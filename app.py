@@ -11,7 +11,6 @@ app = Flask(__name__)
 CORS(app)
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
 BRANDS = {
     "alpha_dominus": {
@@ -28,19 +27,17 @@ app_cache = {"data": None, "last_updated": 0}
 CACHE_DURATION = 1800 
 
 def get_tiktok_data(username):
-    """Busca perfil e os 3 últimos vídeos do TikTok"""
-    if not RAPIDAPI_KEY: return {}
+    """Busca perfil e vídeos direto da fonte oficial (TikWM) sem RapidAPI"""
     
-    headers = {
-        "x-rapidapi-key": RAPIDAPI_KEY, 
-        "x-rapidapi-host": "tiktok-scraper7.p.rapidapi.com"
-    }
+    profile_data = {"followers": "0", "likes": "0", "videoCount": "0", "recentVideos": []}
     
     # 1. Busca Perfil
-    profile_data = {"followers": "0", "likes": "0", "videoCount": "0", "recentVideos": []}
     try:
-        res_profile = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=headers, params={"unique_id": username})
-        stats = res_profile.json().get('data', {}).get('stats', {})
+        url_profile = "https://www.tikwm.com/api/user/info"
+        res_profile = requests.get(url_profile, params={"unique_id": username})
+        data_profile = res_profile.json()
+        
+        stats = data_profile.get('data', {}).get('stats', {})
         profile_data["followers"] = str(stats.get('followerCount', '0'))
         profile_data["likes"] = str(stats.get('heartCount', '0'))
         profile_data["videoCount"] = str(stats.get('videoCount', '0'))
@@ -49,8 +46,11 @@ def get_tiktok_data(username):
 
     # 2. Busca Vídeos Recentes
     try:
-        res_videos = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/posts", headers=headers, params={"unique_id": username, "count": "3", "cursor": "0"})
-        videos_list = res_videos.json().get('data', {}).get('videos', [])[:3]
+        url_videos = "https://www.tikwm.com/api/user/posts"
+        res_videos = requests.get(url_videos, params={"unique_id": username, "count": 3})
+        data_videos = res_videos.json()
+        
+        videos_list = data_videos.get('data', {}).get('videos', [])
         
         recent_videos = []
         for v in videos_list:
