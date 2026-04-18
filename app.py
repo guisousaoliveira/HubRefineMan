@@ -11,6 +11,7 @@ app = Flask(__name__)
 CORS(app)
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+TIKWMAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
 BRANDS = {
     "alpha_dominus": {
@@ -24,17 +25,30 @@ BRANDS = {
 }
 
 app_cache = {"data": None, "last_updated": 0}
-CACHE_DURATION = 1800 
+CACHE_DURATION = 3600 
 
 def get_tiktok_data(username):
-    """Busca perfil e vídeos direto da fonte oficial (TikWM) sem RapidAPI"""
+    """Busca perfil e vídeos usando a tiktok-scraper7 (Segura contra bloqueios)"""
+    if not TIKWMAPI_KEY: 
+        return {"followers": "0", "likes": "0", "videoCount": "0", "recentVideos": []}
     
-    profile_data = {"followers": "0", "likes": "0", "videoCount": "0", "recentVideos": []}
+    profile_data = {
+        "followers": "0", 
+        "likes": "0", 
+        "videoCount": "0", 
+        "recentVideos": [],
+        "handle": f"@{username}",
+        "url": f"https://www.tiktok.com/@{username}"
+    }
+    
+    headers = {
+        "x-tikwmapi-key": TIKWMAPI_KEY
+    }
     
     # 1. Busca Perfil
     try:
-        url_profile = "https://www.tikwm.com/api/user/info"
-        res_profile = requests.get(url_profile, params={"unique_id": username})
+        url_profile = "https://api.tikwmapi.com/user/info"
+        res_profile = requests.get(url_profile, headers=headers, params={"unique_id": username})
         data_profile = res_profile.json()
         
         stats = data_profile.get('data', {}).get('stats', {})
@@ -46,20 +60,21 @@ def get_tiktok_data(username):
 
     # 2. Busca Vídeos Recentes
     try:
-        url_videos = "https://www.tikwm.com/api/user/posts"
-        res_videos = requests.get(url_videos, params={"unique_id": username, "count": 3})
+        url_videos = "https://api.tikwmapi.com/user/posts"
+        res_videos = requests.get(url_videos, headers=headers, params={"unique_id": username, "count": 10, "cursor": 0})
         data_videos = res_videos.json()
         
         videos_list = data_videos.get('data', {}).get('videos', [])
         
         recent_videos = []
-        for v in videos_list:
+        for v in videos_list[:3]:
             recent_videos.append({
                 "title": v.get('title', ''),
                 "thumbnail": v.get('cover', ''),
                 "videoId": v.get('video_id', ''),
                 "views": str(v.get('play_count', '0')),
                 "likes": str(v.get('digg_count', '0')),
+                "comments": str(v.get('comment_count', '0')),
                 "url": f"https://www.tiktok.com/@{username}/video/{v.get('video_id')}"
             })
         profile_data["recentVideos"] = recent_videos
@@ -69,12 +84,12 @@ def get_tiktok_data(username):
     return profile_data
 
 def get_youtube_data(channel_id):
-    """Puxa dados e vídeos do YouTube com tratamento de erro reforçado"""
+    """Puxa dados e vídeos recentes do YouTube"""
     try:
         url_ch = f"https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet,contentDetails&id={channel_id}&key={YOUTUBE_API_KEY}"
         data = requests.get(url_ch).json()
         
-        if 'items' not in data: return {} # Evita quebrar se a cota exceder
+        if 'items' not in data: return {} 
         
         item = data['items'][0]
         stats = item['statistics']
@@ -98,7 +113,6 @@ def get_youtube_data(channel_id):
                 "url": f"https://youtube.com/watch?v={vid_id}"
             })
             
-        # Segunda chamada para pegar views/likes (Se falhar, mantém "0")
         if video_ids:
             try:
                 ids_string = ",".join(video_ids)
@@ -109,8 +123,9 @@ def get_youtube_data(channel_id):
                         if rv['videoId'] == stat_item['id']:
                             rv['views'] = stat_item['statistics'].get('viewCount', '0')
                             rv['likes'] = stat_item['statistics'].get('likeCount', '0')
+                            rv['comments'] = stat_item['statistics'].get('comment_count', '0')
             except:
-                pass # Ignora erro e entrega com "0" em vez de quebrar a tela
+                pass
 
         return {
             "subscribers": stats.get('subscriberCount', '0'),
